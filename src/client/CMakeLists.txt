@@ -1,4 +1,6 @@
-add_executable(client client.cpp)
-
-# 链接libevent库
-target_link_libraries(client PRIVATE event_core event_extra)
+BUILD_EXECUTABLE(
+    PROJECT_NAME "client"
+    FOLDER_NAME "client"
+    DEPENDENCIES_LIST
+    LINK_LIBRARIES_LIST event_core event_extra
+)

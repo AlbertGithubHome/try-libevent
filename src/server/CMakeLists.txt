@@ -1,4 +1,6 @@
-add_executable(server server.cpp)
-
-# 链接libevent库
-target_link_libraries(server PRIVATE event_core event_extra)
+BUILD_EXECUTABLE(
+    PROJECT_NAME "server"
+    FOLDER_NAME "server"
+    DEPENDENCIES_LIST
+    LINK_LIBRARIES_LIST event_core event_extra
+)
