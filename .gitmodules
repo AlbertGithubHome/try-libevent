@@ -1,3 +1,6 @@
 [submodule "3rdparty/libevent"]
 	path = 3rdparty/libevent
 	url = https://github.com/libevent/libevent.git
+[submodule "3rdparty/openssl"]
+	path = 3rdparty/openssl
+	url = https://github.com/openssl/openssl.git
