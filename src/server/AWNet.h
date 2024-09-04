@@ -11,12 +11,7 @@
 #include <event2/event.h>       // event_base
 #include <event2/bufferevent.h> // bufferevent
 
-
-// #include <event2/thread.h>
-// #include <event2/event_compat.h>
-
-using AWSOCK = int64_t;
-class AWNet;
+#include "common/AWCommon.h"
 
 enum class EConneObjectState
 {
@@ -26,6 +21,7 @@ enum class EConneObjectState
     WaitRemove,
 };
 
+class AWNet;
 class ConnObject
 {
 public:
