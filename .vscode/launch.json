@@ -1,0 +1,45 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch Server",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bin/debug/server",
+            "args": [ "Name=Server"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/bin/debug",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+
+        {
+            "name": "Launch Client",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bin/debug/client",
+            "args": [ "Name=Client"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/bin/debug",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+
+    ]
+}

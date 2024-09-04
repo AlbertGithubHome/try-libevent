@@ -2,9 +2,12 @@
 #define AW_NET_H
 
 #include <iostream>
+#include <string_view>
 #include <string>
 #include <vector>
 #include <map>
+#include <functional>
+#include <memory>
 
 #include <event2/util.h>        // evutil_socket_t
 #include <arpa/inet.h>          // inet_ntop
@@ -12,6 +15,23 @@
 #include <event2/bufferevent.h> // bufferevent
 
 #include "common/AWCommon.h"
+
+class AWNet;
+enum AW_NET_EVENT
+{
+    AW_NET_EVENT_READING = 0x01,
+    AW_NET_EVENT_WRITING = 0x02,
+    AW_NET_EVENT_EOF = 0x10,
+    AW_NET_EVENT_ERROR = 0x20,
+    AW_NET_EVENT_TIMEOUT = 0x40,
+    AW_NET_EVENT_CONNECTED = 0x80,
+};
+
+using NET_RECEIVE_FUNCTOR = std::function<void(const AWSOCK sockIndex, const int msgId, const std::string_view& msg)>;
+using NET_RECEIVE_FUNCTOR_PTR = std::shared_ptr<NET_RECEIVE_FUNCTOR>;
+
+using NET_EVENT_FUNCTOR = std::function<void(const AWSOCK sockIndex, const AW_NET_EVENT events, AWNet* pNet)>;
+using NET_EVENT_FUNCTOR_PTR = std::shared_ptr<NET_EVENT_FUNCTOR>;
 
 enum class EConneObjectState
 {
@@ -21,7 +41,6 @@ enum class EConneObjectState
     WaitRemove,
 };
 
-class AWNet;
 class ConnObject
 {
 public:
@@ -109,6 +128,8 @@ public:
 
         mWorking = false;
         mbServer = false;
+
+        mMaxConnect = 0;
     }
 
     virtual ~AWNet() {}
@@ -143,10 +164,10 @@ private:
     static void conn_eventcb(struct bufferevent* bev, int16_t events, void* ctx);
     static void log_cb(int severity, const char* msg);
     static void event_fatal_cb(int err);
+    static void set_socket_and_bev(int fd, struct bufferevent* bev, void* ctx);
 
 private:
     //<sockindex/fd,object>
-    //Use share pointer replace C-style pointer
     std::map<AWSOCK, ConnObject*> mConnObjects;
     std::vector<AWSOCK> mWaitRemoveSocks;
 
@@ -157,5 +178,9 @@ private:
     struct evconnlistener* mListener;
     bool mWorking;
     bool mbServer;
+
+    int mMaxConnect;
+
+    NET_EVENT_FUNCTOR mNetEventCB;
 };
 #endif

@@ -14,7 +14,7 @@ TO
 */
 
 //1048576 = 1024 * 1024
-#define KW_BUFFER_MAX_READ 1048576
+#define AW_BUFFER_MAX_READ 1048576
 
 void AWNet::log_cb(int severity, const char* msg)
 {
@@ -23,11 +23,13 @@ void AWNet::log_cb(int severity, const char* msg)
 
 void AWNet::event_fatal_cb(int err)
 {
-    //LOG(FATAL) << "event_fatal_cb " << err;
+    std::cerr << "event_fatal_cb: " << err;
 }
 
 void AWNet::conn_eventcb(struct bufferevent* bev, int16_t events, void* ctx)
 {
+     std::cout << "conn_eventcb: events is [" << events << "]" << std::endl;
+
     ConnObject* pObject = reinterpret_cast<ConnObject*>(ctx);
     if (!pObject)
     {
@@ -53,38 +55,36 @@ void AWNet::conn_eventcb(struct bufferevent* bev, int16_t events, void* ctx)
             pNet->mWorking = false;
     }
 
-    // if (pNet->mEventCB)
-    //     pNet->mEventCB(pObject->GetFD(), KW_NET_EVENT(events), pNet);
+    if (pNet->mNetEventCB)
+        pNet->mNetEventCB(pObject->GetFD(), AW_NET_EVENT(events), pNet);
 
-    // if (events & BEV_EVENT_CONNECTED)
-    // {
-    //     struct evbuffer* input = bufferevent_get_input(bev);
-    //     struct evbuffer* output = bufferevent_get_output(bev);
-    //     if (pNet->mnBufferSize > 0)
-    //     {
-    //         evbuffer_expand(input, pNet->mnBufferSize);
-    //         evbuffer_expand(output, pNet->mnBufferSize);
-    //     }
-    // }
-    // else
-    // {
-    //     pNet->CloseNetObject(pObject->GetFD());
-    // }
+    if ((events & BEV_EVENT_CONNECTED) == 0)
+    {
+        pNet->CloseConnObject(pObject->GetFD());
+    }
 }
 
 void AWNet::listener_cb(struct evconnlistener* listener, evutil_socket_t fd, struct sockaddr* sa, int socklen, void* ctx)
 {
     AWNet* pNet = reinterpret_cast<AWNet*>(ctx);
     if (!pNet || pNet->CloseConnObject(fd))
+    {
+        std::cerr << "Socket [" << fd << "] exist already." << std::endl;
         return;
+    }
 
-    // if (pNet->GetConnObjectCount() >= pNet->mnMaxConnect)
-    //     return;
+    if (pNet->GetConnObjectCount() >= pNet->mMaxConnect)
+    {
+        close(fd);
+        std::cerr << "Too many connections up to [" << pNet->GetConnObjectCount() << "]" << std::endl;
+        return;
+    }
 
     struct event_base* base = evconnlistener_get_base(listener);
     struct bufferevent* bev = bufferevent_socket_new(base, fd, BEV_OPT_CLOSE_ON_FREE);
     if (!bev)
     {
+        close(fd);
         std::cerr << "Error constructing bufferevent!" << std::endl;
         return;
     }
@@ -92,31 +92,11 @@ void AWNet::listener_cb(struct evconnlistener* listener, evutil_socket_t fd, str
     ConnObject* pObject = new ConnObject(pNet, fd, *sa, bev);
     pNet->AddConnObject(fd, pObject);
 
-    int optval = 1;
-    int result = setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(optval));
-    //setsockopt(fd, IPPROTO_TCP, TCP_CORK, &optval, sizeof(optval));
-    if (result < 0)
-    {
-        std::cout << "setsockopt TCP_NODELAY ERROR!" << std::endl;
-    }
-
-    int recvBufLen = KW_BUFFER_MAX_READ;
-    result = setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (const char*)&recvBufLen, sizeof(recvBufLen));
-    if (result < 0)
-    {
-        std::cout << "setsockopt SO_RCVBUF ERROR!" << std::endl;
-    }
-
-    bufferevent_setcb(bev, conn_readcb, nullptr, conn_eventcb, reinterpret_cast<void*>(pObject));
-
-    bufferevent_enable(bev, EV_READ | EV_WRITE | EV_CLOSED | EV_TIMEOUT | EV_PERSIST);
+    set_socket_and_bev(fd, bev, reinterpret_cast<void*>(pObject));
 
     event_set_fatal_callback(event_fatal_cb);
 
     conn_eventcb(bev, BEV_EVENT_CONNECTED, reinterpret_cast<void*>(pObject));
-
-    bufferevent_set_max_single_read(bev, KW_BUFFER_MAX_READ);
-    bufferevent_set_max_single_write(bev, KW_BUFFER_MAX_READ);
 }
 
 void AWNet::conn_readcb(struct bufferevent* bev, void* ctx)
@@ -138,10 +118,48 @@ void AWNet::conn_readcb(struct bufferevent* bev, void* ctx)
 
     size_t len = evbuffer_get_length(input);
     unsigned char* data = evbuffer_pullup(input, len);
+
     pObject->AddTail((const char*)data, len);
     evbuffer_drain(input, len);
 
     while (pNet->ExtractPackage(pObject));
+}
+
+void AWNet::set_socket_and_bev(int fd, struct bufferevent* bev, void* ctx)
+{
+    int optval = 1;
+    //setsockopt(fd, IPPROTO_TCP, TCP_CORK, &optval, sizeof(optval));
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(optval)) < 0)
+    {
+        std::cerr << "setsockopt TCP_NODELAY ERROR:" << strerror(errno) << std::endl;
+    }
+
+    int recvBufLen = AW_BUFFER_MAX_READ;
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (const char*)&recvBufLen, sizeof(recvBufLen)) < 0)
+    {
+        std::cerr << "setsockopt SO_RCVBUF ERROR:" << strerror(errno) << std::endl;
+    }
+
+    bufferevent_setcb(bev, conn_readcb, nullptr, conn_eventcb, ctx);
+    bufferevent_enable(bev, EV_READ | EV_WRITE | EV_CLOSED | EV_TIMEOUT | EV_PERSIST);
+
+    // std::cout << "[INFO] buffer event args, fd [" << fd << "] max_to_read: " << bufferevent_get_max_to_read(bev)
+    //     << ", max_to_write: " << bufferevent_get_max_to_write(bev) << std::endl;
+
+    bufferevent_set_max_single_read(bev, AW_BUFFER_MAX_READ);
+    bufferevent_set_max_single_write(bev, AW_BUFFER_MAX_READ);
+
+    std::cout << "[INFO] buffer event args, fd [" << fd << "] max_to_read: " << bufferevent_get_max_to_read(bev)
+        << ", max_to_write: " << bufferevent_get_max_to_write(bev) << std::endl;
+
+    // The setup interface is provided later
+    {
+        struct evbuffer* input = bufferevent_get_input(bev);
+        struct evbuffer* output = bufferevent_get_output(bev);
+
+        evbuffer_expand(input, AW_BUFFER_MAX_READ);
+        evbuffer_expand(output, AW_BUFFER_MAX_READ);
+    }
 }
 
 bool AWNet::Execute()
@@ -164,6 +182,7 @@ void AWNet::Initialization(const char* ip, const uint16_t nPort)
 
 int AWNet::Initialization(const uint32_t nMaxClient, const uint16_t nPort, const int nCpuCount)
 {
+    mMaxConnect = nMaxClient;
     mPort = nPort;
 
     return InitServerNet();
@@ -211,22 +230,6 @@ bool AWNet::SendMsg(const std::string& msg, const AWSOCK sockIndex)
     return false;
 }
 
-bool AWNet::CloseConnObject(const AWSOCK sockIndex)
-{
-    auto it = mConnObjects.find(sockIndex);
-    if (it != mConnObjects.end())
-    {
-        ConnObject* pObject = it->second;
-
-        pObject->SetState(EConneObjectState::WaitRemove);
-        mWaitRemoveSocks.push_back(sockIndex);
-
-        return true;
-    }
-
-    return false;
-}
-
 bool AWNet::ExtractPackage(ConnObject* pObject)
 {
     bool continueExtract = false;
@@ -242,12 +245,6 @@ bool AWNet::ExtractPackage(ConnObject* pObject)
     }
 
     return continueExtract;
-}
-
-bool AWNet::AddConnObject(const AWSOCK sockIndex, ConnObject* pObject)
-{
-    //lock
-    return mConnObjects.insert(std::map<AWSOCK, ConnObject *>::value_type(sockIndex, pObject)).second;
 }
 
 int AWNet::InitClientNet()
@@ -293,29 +290,9 @@ int AWNet::InitClientNet()
         return -1;
     }
 
-    mbServer = false;
-
-    int optval = 1;
-    //setsockopt(fd, IPPROTO_TCP, TCP_CORK, &optval, sizeof(optval));
-    if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(optval)) < 0)
-    {
-        std::cout << "setsockopt TCP_NODELAY ERROR !!!" << std::endl;
-        return -1;
-    }
-
-    int nRecvBufLen = KW_BUFFER_MAX_READ;
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (const char*)&nRecvBufLen, sizeof(int));
-
-    bufferevent_setcb(bev, conn_readcb, nullptr, conn_eventcb, reinterpret_cast<void*>(pObject));
-    bufferevent_enable(bev, EV_READ | EV_WRITE | EV_CLOSED | EV_TIMEOUT | EV_PERSIST);
-
     event_set_log_callback(&AWNet::log_cb);
 
-    bufferevent_set_max_single_read(bev, KW_BUFFER_MAX_READ);
-    bufferevent_set_max_single_write(bev, KW_BUFFER_MAX_READ);
-
-    std::cout << "Want to connect " << mIP << " SizeRead: " << bufferevent_get_max_to_read(bev)
-        << " SizeWrite: " << bufferevent_get_max_to_write(bev) << std::endl;
+    set_socket_and_bev(sockfd, bev, reinterpret_cast<void*>(pObject));
 
     return sockfd;
 }
@@ -329,7 +306,7 @@ int AWNet::InitServerNet()
         if (event_config_set_flag(cfg, EVENT_BASE_FLAG_EPOLL_USE_CHANGELIST) < 0)
             return -1;
 
-        mBase = event_base_new_with_config(cfg); //event_base_new()
+        mBase = event_base_new_with_config(cfg);
 
         event_config_free(cfg);
     }
@@ -349,8 +326,7 @@ int AWNet::InitServerNet()
 
     mListener = evconnlistener_new_bind(mBase, listener_cb, reinterpret_cast<void*>(this),
                                        LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE, -1,
-                                       (struct sockaddr *)&sin,
-                                       sizeof(sin));
+                                       (struct sockaddr *)&sin, sizeof(sin));
 
     if (!mListener)
     {
@@ -362,7 +338,44 @@ int AWNet::InitServerNet()
 
     event_set_log_callback(&AWNet::log_cb);
 
+    mbServer = true;
+
     return 0;
+}
+
+int AWNet::GetConnObjectCount()
+{
+    return static_cast<int>(mConnObjects.size());
+}
+
+ConnObject* AWNet::GetNetObject(const AWSOCK sockIndex)
+{
+    auto it = mConnObjects.find(sockIndex);
+    if (it != mConnObjects.end())
+        return it->second;
+
+    return nullptr;
+}
+
+bool AWNet::AddConnObject(const AWSOCK sockIndex, ConnObject* pObject)
+{
+    return mConnObjects.insert(std::map<AWSOCK, ConnObject *>::value_type(sockIndex, pObject)).second;
+}
+
+bool AWNet::CloseConnObject(const AWSOCK sockIndex)
+{
+    auto it = mConnObjects.find(sockIndex);
+    if (it != mConnObjects.end())
+    {
+        ConnObject* pObject = it->second;
+
+        pObject->SetState(EConneObjectState::WaitRemove);
+        mWaitRemoveSocks.push_back(sockIndex);
+
+        return true;
+    }
+
+    return false;
 }
 
 bool AWNet::CloseSocketAll()
@@ -379,18 +392,14 @@ bool AWNet::CloseSocketAll()
     return true;
 }
 
-int AWNet::GetConnObjectCount()
+void AWNet::ExecuteClose()
 {
-    return mConnObjects.size();
-}
+    for (const auto sockIndex : mWaitRemoveSocks)
+    {
+        CloseObject(sockIndex);
+    }
 
-ConnObject* AWNet::GetNetObject(const AWSOCK sockIndex)
-{
-    auto it = mConnObjects.find(sockIndex);
-    if (it != mConnObjects.end())
-        return it->second;
-
-    return nullptr;
+    mWaitRemoveSocks.clear();
 }
 
 void AWNet::CloseObject(const AWSOCK sockIndex)
@@ -406,19 +415,8 @@ void AWNet::CloseObject(const AWSOCK sockIndex)
 
         mConnObjects.erase(it);
 
-        delete pObject;
-        pObject = nullptr;
+        AW_SAFE_DELETE(pObject);
     }
-}
-
-void AWNet::ExecuteClose()
-{
-    for (const auto sockIndex : mWaitRemoveSocks)
-    {
-        CloseObject(sockIndex);
-    }
-
-    mWaitRemoveSocks.clear();
 }
 
 bool AWNet::IsServer()
