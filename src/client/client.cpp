@@ -1,6 +1,5 @@
 #include "common/AWNet.h"
 #include <iostream>
-#include <chrono>
 #include <thread>
 
 int main()
@@ -15,13 +14,13 @@ int main()
     // this is valid because the connect is not connected
     pNet->SendMsg("Hello", 0);
 
-    AWINT64 now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    AWINT64 now = AWGetTimeMS();
 
     while (true)
     {
         pNet->Execute();
 
-        AWINT64 ts = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        AWINT64 ts = AWGetTimeMS();
         if (ts - now >= 10000)
         {
             std::cout << "tick[" << ts << "]" << std::endl;

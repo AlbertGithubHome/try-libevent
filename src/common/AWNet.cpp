@@ -250,8 +250,6 @@ bool AWNet::ExtractPackage(ConnObject* pObject)
 int AWNet::InitClientNet()
 {
     struct sockaddr_in addr;
-    struct bufferevent* bev = nullptr;
-
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(mPort);
@@ -269,7 +267,7 @@ int AWNet::InitClientNet()
         return -1;
     }
 
-    bev = bufferevent_socket_new(mBase, -1, BEV_OPT_CLOSE_ON_FREE);
+    struct bufferevent* bev = bufferevent_socket_new(mBase, -1, BEV_OPT_CLOSE_ON_FREE);
     if (bev == nullptr)
     {
         std::cerr << "bufferevent_socket_new error" << std::endl;

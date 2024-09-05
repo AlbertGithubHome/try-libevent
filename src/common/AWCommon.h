@@ -6,6 +6,8 @@
 #include <errno.h>
 #include <unistd.h>
 
+#include <chrono>
+
 using AWUINT64 = uint64_t;
 using AWUINT32 = uint32_t;
 using AWUINT16 = uint16_t;
@@ -21,4 +23,8 @@ using AWCONV = uint32_t;
 
 #define AW_SAFE_DELETE(p) do { if (p) { delete (p); (p) = NULL; } } while (0) // AW_SAFE_DELETE
 
+inline AWINT64 AWGetTimeMS()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
 #endif
